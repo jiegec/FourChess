@@ -6,7 +6,7 @@
 #include <sys/time.h>
 
 #ifdef DEBUG
-#define debug(...) printf(##__VAARS__)
+#define debug(...) printf(__VA_ARGS__)
 #else
 #define debug(...)
 #endif
@@ -41,7 +41,7 @@ void UCT::Search(const int * const * origBoard, const int * origTop, int &placeX
     long us = begin.tv_sec * 1000000 + begin.tv_usec;
     long cur_us = us;
     //while 尚未用完计算时长 do:
-    while (cur_us < us + 2700000) {
+    while (cur_us < us + 2500000) {
         for (int j = 0;j < M;j++) {
             for (int k = 0;k < N;k++) {
                 currentBoard[j][k] = origBoard[j][k];
@@ -62,17 +62,21 @@ void UCT::Search(const int * const * origBoard, const int * origTop, int &placeX
     //end while
     //return a(BESTCHILD(v_0,0));
 
-    printf("root win rate: %f/%d\n", root->Q, root->N);
     UCTNode *best = root->bestChild(0.0);
-    printf("best win rate: %f/%d\n", best->Q, best->N);
+#ifdef DEBUG
+    root->print();
+#endif
+    printf("win rate: %.2f\n", best->Q / best->N);
 
     placeX = best->x;
     placeY = best->y;
 
+    delete root;
     for (int i = 0;i < M;i++) {
         delete [] UCT::currentBoard[i];
     }
     delete [] UCT::currentBoard;
+    UCT::currentBoard = nullptr;
 }
 
 // function TreePolicy(v)
@@ -86,7 +90,7 @@ UCTNode *UCT::treePolicy(UCTNode *node) {
         } else {
             //else:
             //v← BESTCHILD(v,c)
-            node = node->bestChild(2.33);
+            node = node->bestChild(1.0);
         }
     }
     //return v
@@ -99,7 +103,8 @@ UCTNode *UCT::treePolicy(UCTNode *node) {
 //s←f(s,a)
 //return 状态s的收益
 float UCT::defaultPolicy(UCTNode *node) {
-    int currentPlayer = node->player;
+    int currentPlayer = 3 - node->player;
+    int winnerPlayer = 0;
     debug("begin emulation:\n");
     for (int i = 0;i < M;i++) {
         for (int j = 0;j < N;j++) {
@@ -108,18 +113,40 @@ float UCT::defaultPolicy(UCTNode *node) {
         debug("\n");
     }
     while (1) {
-        int y = rand() % N;
-        while (currentTop[y] == 0) {
-            y = rand() % N;
+        if (isTie(UCT::N, UCT::currentTop)) {
+            return 0.5;
         }
-        int x = --currentTop[y];
 
-        if (x - 1 == noX && y == noY) {
-            currentTop[y]--;
+        // check early
+        int deadPlace = 0;
+        int deadX = 0, deadY = 0;
+        for (int y = 0;y < N;y++) {
+            if (currentTop[y] < 1) {
+                continue;
+            }
+
+            int x = currentTop[y] - 1;
+            currentBoard[x][y] = currentPlayer;
+            if (currentPlayer == PLAYER_ME && machineWin(x, y, UCT::M, UCT::N, UCT::currentBoard)) {
+                winnerPlayer = PLAYER_ME;
+                goto end;
+            } else if (currentPlayer == PLAYER_OTHER && userWin(x, y, UCT::M, UCT::N, UCT::currentBoard)) {
+                winnerPlayer = PLAYER_OTHER;
+                goto end;
+            }
+
+            currentBoard[x][y] = 3 - currentPlayer;
+            if (currentPlayer == PLAYER_ME && userWin(x, y, UCT::M, UCT::N, UCT::currentBoard)) {
+                deadPlace ++;
+                deadX = x;
+                deadY = y;
+            } else if (currentPlayer == PLAYER_OTHER && machineWin(x, y, UCT::M, UCT::N, UCT::currentBoard)) {
+                deadPlace ++;
+                deadX = x;
+                deadY = y;
+            }
+            currentBoard[x][y] = 0;
         }
-        currentPlayer = 3 - currentPlayer;
-
-        currentBoard[x][y] = currentPlayer;
 
         debug("one step:\n");
         for (int i = 0;i < M;i++) {
@@ -128,14 +155,37 @@ float UCT::defaultPolicy(UCTNode *node) {
             }
             debug("\n");
         }
-
-        if (currentPlayer == PLAYER_ME && machineWin(x, y, UCT::M, UCT::N, UCT::currentBoard)) {
-            return node->player == PLAYER_ME ? 1.0 : 0.0;
-        } else if (currentPlayer == PLAYER_OTHER && userWin(x, y, UCT::M, UCT::N, UCT::currentBoard)) {
-            return node->player == PLAYER_OTHER ? 1.0 : 0.0;
-        } else if (isTie(UCT::N, currentTop)) {
-            return 0.5;
+        if (deadPlace >= 2) {
+            // always lose
+            debug("early dead at %d %d\n", deadX, deadY);
+            winnerPlayer = 3 - currentPlayer;
+            goto end;
         }
+
+        if (deadPlace == 1) {
+            currentTop[deadY] --;
+            if (deadX - 1 == noX && deadY == noY) {
+                currentTop[deadY]--;
+            }
+            currentBoard[deadX][deadY] = currentPlayer;
+            currentPlayer = 3 - currentPlayer;
+            continue;
+        }
+
+        int y = rand() % N;
+        while (currentTop[y] == 0) {
+            y = rand() % N;
+        }
+        int x = --currentTop[y];
+
+        // skip invalid
+        if (x - 1 == noX && y == noY) {
+            currentTop[y]--;
+        }
+        currentBoard[x][y] = currentPlayer;
+
+        currentPlayer = 3 - currentPlayer;
     }
-    return 0.0;
+end:
+    return winnerPlayer == node->player ? 1.0 : 0.0;
 }

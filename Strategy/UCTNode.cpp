@@ -1,6 +1,7 @@
 #include "UCTNode.h"
 #include "UCT.h"
 #include <math.h>
+#include <stdio.h>
 
 UCTNode::UCTNode(int x, int y, int player, UCTNode *parent) {
     this->x = x;
@@ -24,6 +25,7 @@ UCTNode::UCTNode(int x, int y, int player, UCTNode *parent) {
 UCTNode::~UCTNode() {
     for (int i = 0;i < UCT::N;i++) {
         delete children[i];
+        children[i] = nullptr;
     }
 }
 
@@ -47,7 +49,7 @@ UCTNode *UCTNode::expandOne() {
     int child = rand() % expandNum;
     int yy = expandNodes[child];
     int xx = --UCT::currentTop[yy];
-    UCT::currentBoard[xx][yy] = player;
+    UCT::currentBoard[xx][yy] = 3 - player;
 
     // skip invalid
     if (UCT::currentTop[yy] == UCT::noX + 1 && yy == UCT::noY) {
@@ -69,13 +71,23 @@ UCTNode *UCTNode::expandOne() {
 UCTNode *UCTNode::bestChild(float coef) {
     float max = -1024768;
     UCTNode *best = nullptr;
+    int bestY = 0;
     for (int i = 0;i < UCT::N;i++) {
         if (children[i]) {
             float num = children[i]->Q / children[i]->N + coef * sqrt(2 * log(N) / children[i]->N);
             if (num > max) {
                 max = num;
                 best = children[i];
+                bestY = i;
             }
+        }
+    }
+
+    if (coef != 0.0) {
+        // replay
+        UCT::currentBoard[--UCT::currentTop[bestY]][bestY] = children[bestY]->player;
+        if (UCT::currentTop[bestY] == UCT::noX + 1 && bestY == UCT::noY) {
+            UCT::currentTop[bestY] --;
         }
     }
 
@@ -90,5 +102,14 @@ void UCTNode::backup(float delta) {
         cur->Q += delta;
         delta = 1 - delta;
         cur = cur->parent;
+    }
+}
+
+void UCTNode::print() {
+    printf("Children\n");
+    for (int i = 0;i < UCT::N;i++) {
+        if (children[i]) {
+            printf("%d: %.1f / %d = %.2f\n", i, children[i]->Q, children[i]->N, children[i]->Q / children[i]->N);
+        }
     }
 }

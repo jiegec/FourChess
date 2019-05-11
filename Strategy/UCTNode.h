@@ -25,6 +25,8 @@ public:
 
     int checkEnd();
 
+    void print();
+
     // function Expand(v)
     UCTNode *expandOne();
 
