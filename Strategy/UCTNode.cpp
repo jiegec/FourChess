@@ -75,7 +75,7 @@ UCTNode *UCTNode::bestChild(float coef) {
     for (int i = 0;i < UCT::N;i++) {
         if (children[i]) {
             float num = children[i]->Q / children[i]->N + coef * sqrt(2 * log(N) / children[i]->N);
-            if (num > max) {
+            if (num > max || (children[i]->Q == children[i]->N && coef == 0.0 && children[i]->checkEnd())) {
                 max = num;
                 best = children[i];
                 bestY = i;
