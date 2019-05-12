@@ -49,9 +49,11 @@ extern "C" Point* getPoint(const int M, const int N, const int* top, const int* 
 		该部分对参数使用没有限制，为了方便实现，你可以定义自己新的类、.h文件、.cpp文件
 	*/
 	//Add your own code below
+
 	srand(time(NULL));
 	UCT uct(M, N, noX, noY);
 	uct.Search(board, top, x, y);
+	printf("place at %d %d\n", x, y);
 	
 	/*
 		不要更改这段代码

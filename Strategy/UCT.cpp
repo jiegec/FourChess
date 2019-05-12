@@ -41,7 +41,7 @@ void UCT::Search(const int * const * origBoard, const int * origTop, int &placeX
     long us = begin.tv_sec * 1000000 + begin.tv_usec;
     long cur_us = us;
     //while 尚未用完计算时长 do:
-    while (cur_us < us + 2500000) {
+    while (cur_us < us + 2900000) {
         for (int j = 0;j < M;j++) {
             for (int k = 0;k < N;k++) {
                 currentBoard[j][k] = origBoard[j][k];
@@ -183,6 +183,19 @@ float UCT::defaultPolicy(UCTNode *node) {
             currentTop[y]--;
         }
         currentBoard[x][y] = currentPlayer;
+
+        // check if opponent can win right after we place this
+        if (x > 0 && x - 1 != noX) {
+            currentBoard[x-1][y] = 3 - currentPlayer;
+            if (currentPlayer == PLAYER_ME && userWin(x-1, y, UCT::M, UCT::N, UCT::currentBoard)) {
+                winnerPlayer = PLAYER_OTHER;
+                goto end;
+            } else if (currentPlayer == PLAYER_OTHER && machineWin(x-1, y, UCT::M, UCT::N, UCT::currentBoard)) {
+                winnerPlayer = PLAYER_ME;
+                goto end;
+            }
+            currentBoard[x-1][y] = 0;
+        }
 
         currentPlayer = 3 - currentPlayer;
     }
