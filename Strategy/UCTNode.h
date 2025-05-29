@@ -14,9 +14,9 @@ class UCTNode {
     int expandNum;
     int expandNodes[MAX_N]; // next step which column
 
-    int endNode; // -1 means unknown, 0/1 means end/non-end
+    bool endNode; // whether it is an end node, i.e. no more steps are available
 
-    float Q;
+    int Q; // 0 for lose, 1 for tie, 2 for win; divide by 2 to get the real score
     int N;
 public:
     UCTNode(int x, int y, int player, UCTNode *parent);
@@ -34,7 +34,7 @@ public:
     UCTNode *bestChild(float coef);
 
     // function Backup
-    void backup(float delta);
+    void backup(int delta);
 };
 
 #endif

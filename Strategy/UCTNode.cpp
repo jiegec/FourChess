@@ -10,7 +10,7 @@ UCTNode::UCTNode(int x, int y, int player, UCTNode *parent) {
     this->parent = parent;
     endNode = -1;
 
-    Q = 0.0;
+    Q = 0;
     N = 0;
 
     expandNum = 0;
@@ -19,6 +19,17 @@ UCTNode::UCTNode(int x, int y, int player, UCTNode *parent) {
             expandNodes[expandNum++] = i;
         }
         children[i] = nullptr;
+    }
+
+    // check if this is an end node?
+    if (x == -1 || y == -1) {
+        // root node
+        endNode = false;
+    } else {
+        // somebody wins, or no moves are possible
+        endNode = (player == PLAYER_OTHER && userWin(x, y, UCT::M, UCT::N, UCT::currentBoard)) || 
+            (player == PLAYER_ME && machineWin(x, y, UCT::M, UCT::N, UCT::currentBoard)) ||
+            expandNum == 0;
     }
 }
 
@@ -30,18 +41,7 @@ UCTNode::~UCTNode() {
 }
 
 int UCTNode::checkEnd() {
-    if (x == -1 || y == -1) {
-        // root node
-        return -1;
-    }
-    if (endNode == -1) {
-        // check
-        endNode = userWin(x, y, UCT::M, UCT::N, UCT::currentBoard) || 
-            machineWin(x, y, UCT::M, UCT::N, UCT::currentBoard) || expandNum == 0;
-        return endNode;
-    } else {
-        return endNode;
-    }
+    return endNode ? 0 : 1;
 }
 
 // function EXPAND
@@ -74,8 +74,8 @@ UCTNode *UCTNode::bestChild(float coef) {
     int bestY = 0;
     for (int i = 0;i < UCT::N;i++) {
         if (children[i]) {
-            float num = children[i]->Q / children[i]->N + coef * sqrt(2 * log(N) / children[i]->N);
-            if (num > max || (children[i]->Q == children[i]->N && coef == 0.0 && children[i]->checkEnd())) {
+            float num = children[i]->Q / 2.0 / children[i]->N + coef * sqrt(2 * log(N) / children[i]->N);
+            if (num > max) {
                 max = num;
                 best = children[i];
                 bestY = i;
@@ -95,21 +95,21 @@ UCTNode *UCTNode::bestChild(float coef) {
 }
 
 // function Backup
-void UCTNode::backup(float delta) {
+void UCTNode::backup(int delta) {
     UCTNode *cur = this;
     while (cur) {
         cur->N += 1;
         cur->Q += delta;
-        delta = 1 - delta;
+        delta = 2 - delta;
         cur = cur->parent;
     }
 }
 
 void UCTNode::print() {
-    printf("Children\n");
+    fprintf(stderr, "children\n");
     for (int i = 0;i < UCT::N;i++) {
         if (children[i]) {
-            printf("%d: %.1f / %d = %.2f\n", i, children[i]->Q, children[i]->N, children[i]->Q / children[i]->N);
+            fprintf(stderr, "(%d, %d): %.1f / %d = %.2f\n", children[i]->x, children[i]->y, children[i]->Q / 2.0, children[i]->N, children[i]->Q / 2.0 / children[i]->N);
         }
     }
 }

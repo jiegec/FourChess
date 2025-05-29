@@ -4,9 +4,6 @@
 #include "Judge.h"
 #include <stdlib.h>
 
-const int MAX_M = 12;
-const int MAX_N = 12;
-
 const int PLAYER_ME = 2;
 const int PLAYER_OTHER = 1;
 
@@ -17,7 +14,7 @@ public:
     static int M, N;
     static int noX, noY;
     static int currentTop[MAX_N];
-    static int **currentBoard;
+    static int currentBoard[MAX_M][MAX_N];
 
     UCT(int M, int N, int noX, int noY);
 
@@ -28,7 +25,7 @@ public:
     UCTNode *treePolicy(UCTNode *node);
 
     // function DEFAULTPOLICY(s)
-    float defaultPolicy(UCTNode *node);
+    int defaultPolicy(UCTNode *node);
 };
 
 #endif

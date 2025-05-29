@@ -16,7 +16,7 @@ int UCT::N;
 int UCT::noX;
 int UCT::noY;
 int UCT::currentTop[MAX_N];
-int * * UCT::currentBoard;
+int UCT::currentBoard[MAX_M][MAX_N];
 
 UCT::UCT(int M, int N, int noX, int noY) {
     UCT::M = M;
@@ -27,10 +27,6 @@ UCT::UCT(int M, int N, int noX, int noY) {
 
 // function UCTSEARCH(S_0)
 void UCT::Search(const int * const * origBoard, const int * origTop, int &placeX, int &placeY) {
-    UCT::currentBoard = new int *[M];
-    for (int i = 0;i < M;i++) {
-        UCT::currentBoard[i] = new int[N];
-    }
     memcpy(currentTop, origTop, N * sizeof(int));
     
     //以状态s_0创建根节点v_0;
@@ -40,6 +36,7 @@ void UCT::Search(const int * const * origBoard, const int * origTop, int &placeX
     gettimeofday(&begin, NULL);
     long us = begin.tv_sec * 1000000 + begin.tv_usec;
     long cur_us = us;
+    long searches = 0;
     //while 尚未用完计算时长 do:
     while (cur_us < us + 2900000) {
         for (int j = 0;j < M;j++) {
@@ -52,31 +49,42 @@ void UCT::Search(const int * const * origBoard, const int * origTop, int &placeX
         //v_l←TREEPOLICY(v_0);
         UCTNode *v1 = treePolicy(root);
         //∆←DEFAULTPOLICY(s(v_l));
-        float delta = defaultPolicy(v1);
+        int delta = defaultPolicy(v1);
         //BACKUP(v_l,∆);
         v1->backup(delta);
 
         gettimeofday(&now, NULL);
         cur_us = now.tv_sec * 1000000 + now.tv_usec;
+        searches++;
     }
     //end while
     //return a(BESTCHILD(v_0,0));
 
     UCTNode *best = root->bestChild(0.0);
-#ifdef DEBUG
+    fprintf(stderr, "board:\n");
+    for (int j = 0;j < M;j++) {
+        for (int k = 0;k < N;k++) {
+            char ch = '\0';
+            if (j == best->x && k == best->y) {
+                ch = '!';
+            } else if (origBoard[j][k] == 0) {
+                ch = ' ';
+            } else if (origBoard[j][k] == 1) {
+                ch = 'x';
+            } else if (origBoard[j][k] == 2) {
+                ch = 'o';
+            }
+            fprintf(stderr, "%c", ch);
+        }
+        fprintf(stderr, "\n");
+    }
     root->print();
-#endif
-    printf("win rate: %.2f\n", best->Q / best->N);
+    fprintf(stderr, "win rate: %.2f, searches: %ld\n", best->Q / 2.0 / best->N, searches);
 
     placeX = best->x;
     placeY = best->y;
 
     delete root;
-    for (int i = 0;i < M;i++) {
-        delete [] UCT::currentBoard[i];
-    }
-    delete [] UCT::currentBoard;
-    UCT::currentBoard = nullptr;
 }
 
 // function TreePolicy(v)
@@ -102,7 +110,7 @@ UCTNode *UCT::treePolicy(UCTNode *node) {
 //以等概率选择行动a∈A(s)
 //s←f(s,a)
 //return 状态s的收益
-float UCT::defaultPolicy(UCTNode *node) {
+int UCT::defaultPolicy(UCTNode *node) {
     int currentPlayer = 3 - node->player;
     int winnerPlayer = 0;
     debug("begin emulation:\n");
@@ -112,9 +120,17 @@ float UCT::defaultPolicy(UCTNode *node) {
         }
         debug("\n");
     }
+
+    if (node->player == PLAYER_ME && machineWin(node->x, node->y, UCT::M, UCT::N, UCT::currentBoard)) {
+        winnerPlayer = PLAYER_ME;
+        goto end;
+    } else if (node->player == PLAYER_OTHER && userWin(node->x, node->y, UCT::M, UCT::N, UCT::currentBoard)) {
+        winnerPlayer = PLAYER_OTHER;
+        goto end;
+    }
     while (1) {
         if (isTie(UCT::N, UCT::currentTop)) {
-            return 0.5;
+            return 1;
         }
 
         // check early
@@ -200,5 +216,5 @@ float UCT::defaultPolicy(UCTNode *node) {
         currentPlayer = 3 - currentPlayer;
     }
 end:
-    return winnerPlayer == node->player ? 1.0 : 0.0;
+    return winnerPlayer == node->player ? 2 : 0;
 }
