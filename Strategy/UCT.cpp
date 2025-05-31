@@ -113,6 +113,7 @@ UCTNode *UCT::treePolicy(UCTNode *node) {
 int UCT::defaultPolicy(UCTNode *node) {
     int currentPlayer = 3 - node->player;
     int winnerPlayer = 0;
+    bool isFirstStep = true;
     debug("begin emulation:\n");
     for (int i = 0;i < M;i++) {
         for (int j = 0;j < N;j++) {
@@ -145,10 +146,10 @@ int UCT::defaultPolicy(UCTNode *node) {
             currentBoard[x][y] = currentPlayer;
             if (currentPlayer == PLAYER_ME && machineWin(x, y, UCT::M, UCT::N, UCT::currentBoard)) {
                 winnerPlayer = PLAYER_ME;
-                goto end;
+                goto check_one_step_win;
             } else if (currentPlayer == PLAYER_OTHER && userWin(x, y, UCT::M, UCT::N, UCT::currentBoard)) {
                 winnerPlayer = PLAYER_OTHER;
-                goto end;
+                goto check_one_step_win;
             }
 
             currentBoard[x][y] = 3 - currentPlayer;
@@ -214,6 +215,13 @@ int UCT::defaultPolicy(UCTNode *node) {
         }
 
         currentPlayer = 3 - currentPlayer;
+        isFirstStep = false;
+    }
+check_one_step_win:
+    // if the current player can win in one step, no need to expand anymore
+    if (isFirstStep) {
+        node->expandNum = 0;
+        node->endNode = true;
     }
 end:
     return winnerPlayer == node->player ? 2 : 0;
