@@ -2,19 +2,24 @@
 #define UCT_H
 
 #include "Judge.h"
+#include <cassert>
+#include <cstdint>
 #include <stdlib.h>
+#include <stdint.h>
 
 const int PLAYER_ME = 2;
 const int PLAYER_OTHER = 1;
 
 class UCTNode;
+class BitBoard;
 
 class UCT {
 public:
     static int M, N;
     static int noX, noY;
     static int currentTop[MAX_N];
-    static int currentBoard[MAX_M][MAX_N];
+    // each player has its bit board
+    static BitBoard currentBitBoard[3];
 
     UCT(int M, int N, int noX, int noY);
 
@@ -27,5 +32,135 @@ public:
     // function DEFAULTPOLICY(s)
     int defaultPolicy(UCTNode *node);
 };
+
+// https://github.com/denkspuren/BitboardC4/blob/master/BitboardDesign.md
+class BitBoard {
+public:
+    // at most (MAX_M+1)*MAX_N=156 bits, less than 192 bits
+    // stores a matrix of (M+1) rows, N cols
+    // when N=M=6:
+    //         6 13 20 27 34 41 48
+    //       +---------------------+
+    // row 0 | 5 12 19 26 33 40 47 |
+    //       | 4 11 18 25 32 39 46 |
+    //       | 3 10 17 24 31 38 45 |
+    //       | 2  9 16 23 30 37 44 |
+    //       | 1  8 15 22 29 36 43 |
+    // row 5 | 0  7 14 21 28 35 42 |
+    //       +---------------------+
+    //     col 0  1  2  3  4  5  6
+    uint64_t data[3];
+
+    BitBoard() {
+        data[0] = data[1] = data[2] = 0;
+    }
+
+    BitBoard(const BitBoard &other) {
+        data[0] = other.data[0];
+        data[1] = other.data[1];
+        data[2] = other.data[2];
+    }
+
+    BitBoard(int player, int board[MAX_M][MAX_N]) {
+        data[0] = data[1] = data[2] = 0;
+
+        for (int j = 0;j < UCT::M;j++) {
+            for (int k = 0;k < UCT::N;k++) {
+                if (board[j][k] == player) {
+                    int bit = k * (UCT::M + 1) + UCT::M - j - 1;
+                    data[bit / 64] |= (uint64_t)1 << (bit % 64);
+                }
+            }
+        }
+    }
+
+    inline bool win() const {
+        // learned from https://github.com/qu1j0t3/fhourstones/blob/bf0e70ed9fe8128eeea8539f17dd41826f2cc6b6/Game.c#L108
+        // A & (A >> S) & (A >> (2 * S)) & (A >> (3 * S))
+        // becomes:
+        // temp = A & (A >> S)
+        // temp & (temp >> (2 * S))
+
+        // row: shift by M+1
+        BitBoard temp = (*this) & (*this >> (UCT::M + 1));
+        if (temp & (temp >> (2 * (UCT::M + 1)))) {
+            return true;
+        }
+
+        // col: shift by 1
+        temp = (*this) & (*this >> (1));
+        if (temp & (temp >> (2 * (1)))) {
+            return true;
+        }
+
+        // diag \: shift by M
+        temp = (*this) & (*this >> (UCT::M));
+        if (temp & (temp >> (2 * (UCT::M)))) {
+            return true;
+        }
+
+        // diag /: shift by M+2
+        temp = (*this) & (*this >> (UCT::M + 2));
+        if (temp & (temp >> (2 * (UCT::M + 2)))) {
+            return true;
+        }
+
+        return false;
+    }
+
+    inline void set(int j, int k) {
+        int bit = k * (UCT::M + 1) + UCT::M - j - 1;
+        // assert((data[bit / 64] & ((uint64_t)1 << (bit % 64))) == 0);
+        data[bit / 64] |= (uint64_t)1 << (bit % 64);
+    }
+
+    inline bool winIfSet(int j, int k) const {
+        BitBoard temp = *this;
+        temp.set(j, k);
+        return temp.win();
+    }
+
+    void unset(int j, int k) {
+        int bit = k * (UCT::M + 1) + UCT::M - j - 1;
+        // assert((data[bit / 64] & ((uint64_t)1 << (bit % 64))) != 0);
+        data[bit / 64] &= ~((uint64_t)1 << (bit % 64));
+    }
+
+    bool operator == (const BitBoard &other) const {
+        return data[0] == other.data[0] && data[1] == other.data[1] && data[2] == other.data[2];
+    }
+
+    inline BitBoard operator >> (int amount) const {
+        BitBoard res;
+        // assert(0 < amount && amount < 64);
+        res.data[0] = (data[0] >> amount) | (data[1] << (64 - amount));
+        if ((UCT::M + 1) * UCT::N > 128) {
+            res.data[1] = (data[1] >> amount) | (data[2] << (64 - amount));
+            res.data[2] = data[2] >> amount;
+        } else {
+            res.data[1] = data[1] >> amount;
+        }
+        return res;
+    }
+
+    inline BitBoard operator & (const BitBoard &other) const {
+        BitBoard res;
+        res.data[0] = data[0] & other.data[0];
+        res.data[1] = data[1] & other.data[1];
+        res.data[2] = data[2] & other.data[2];
+        return res;
+    }
+
+    void operator = (const BitBoard &other) {
+        data[0] = other.data[0];
+        data[1] = other.data[1];
+        data[2] = other.data[2];
+    }
+
+    inline operator bool () const {
+        return data[0] || data[1] || data[2];
+    }
+};
+
 
 #endif
