@@ -1,12 +1,14 @@
 #include "UCTNode.h"
 #include "UCT.h"
 #include <math.h>
+#include <memory>
 #include <stdio.h>
 #include <assert.h>
 #include <algorithm>
 
-std::unordered_map<std::pair<BitBoard, BitBoard>, UCTNode *> nodeCache;
-BumpAllocator allocator;
+std::unordered_map<std::pair<BitBoard, BitBoard>, std::weak_ptr<UCTNode>> nodeCache;
+uint64_t ptrFreed = 0;
+uint64_t ptrAllocd = 0;
 
 UCTNode::UCTNode(int player, UCTNode *parent) {
     this->player = player;
@@ -36,6 +38,7 @@ UCTNode::UCTNode(int player, UCTNode *parent) {
 }
 
 UCTNode::~UCTNode() {
+    ptrFreed ++;
     for (int i = 0;i < UCT::N;i++) {
         children[i] = nullptr;
     }
@@ -62,9 +65,10 @@ UCTNode *UCTNode::expandOne() {
     auto it = nodeCache.find(
         {UCT::currentBitBoard[PLAYER_OTHER], UCT::currentBitBoard[PLAYER_ME]}
     );
-    if (it == nodeCache.end()) {
-        UCTNode *buffer = allocator.allocate();
-        children[yy] = new (buffer) UCTNode(3 - player, this);
+    std::shared_ptr<UCTNode> ptr;
+    if (it == nodeCache.end() || !(ptr = it->second.lock())) {
+        children[yy] = std::make_shared<UCTNode>(3 - player, this);
+        ptrAllocd ++;
         nodeCache.insert(
             {
                 {UCT::currentBitBoard[PLAYER_OTHER], UCT::currentBitBoard[PLAYER_ME]}, 
@@ -72,7 +76,7 @@ UCTNode *UCTNode::expandOne() {
             });
     } else {
         // reuse
-        children[yy] = it->second;
+        children[yy] = ptr;
         // redirect parent
         children[yy]->parent = this;
     }
@@ -85,7 +89,7 @@ UCTNode *UCTNode::expandOne() {
     expandNodes[expandNum] = expandNodes[child];
     expandNodes[child] = temp;
 
-    return children[yy];
+    return children[yy].get();
 }
 
 // function BESTCHILD
@@ -106,7 +110,7 @@ UCTNode *UCTNode::bestChild(float coef) {
             float num = children[i]->Q + coef * sqrtf(logN2 / childVisit[i]);
             if (num > max || best == nullptr) {
                 max = num;
-                best = children[i];
+                best = children[i].get();
                 bestY = i;
             }
         }

@@ -3,12 +3,16 @@
 
 #include "UCT.h"
 #include <cassert>
+#include <memory>
 #include <unordered_map>
+
+extern uint64_t ptrFreed;
+extern uint64_t ptrAllocd;
 
 class UCTNode {
     friend class UCT;
     UCTNode *parent; // parent node in the current search path
-    UCTNode *children [MAX_N];
+    std::shared_ptr<UCTNode> children [MAX_N];
     double Q; // win rate
     double selfQ; // win rate for self visit in defaultPolicy
 
@@ -45,29 +49,8 @@ public:
     void backup(int delta);
 };
 
-class BumpAllocator {
-public:
-    UCTNode data[900 * 1024 * 1024 / sizeof(struct UCTNode)];
-    size_t index;
-
-    BumpAllocator() {
-        index = 0;
-    }
-
-    UCTNode *allocate() {
-        assert(index < sizeof(data) / sizeof(data[0]));
-        return &data[index++];
-    }
-
-    void clear() {
-        index = 0;
-    }
-};
-
-extern BumpAllocator allocator;
-
 
 // hash map: (bitboardOther, bitboardMe) -> state
-extern std::unordered_map<std::pair<BitBoard, BitBoard>, UCTNode *> nodeCache;
+extern std::unordered_map<std::pair<BitBoard, BitBoard>, std::weak_ptr<UCTNode>> nodeCache;
 
 #endif

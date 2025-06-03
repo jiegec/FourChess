@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstring>
 #include <memory.h>
+#include <memory>
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/time.h>
@@ -47,10 +48,10 @@ void UCT::Search(const int * const * origBoard, const int * origTop, int &placeX
 
     // reclaim memory every several rounds
     static int round = 0;
-    int reclaim = 10;
+    int reclaim = 1;
     round ++;
     // give some time for memory reclaim
-    int timeLimit = (round % reclaim == 0) ? 2500000 : 2800000;
+    int timeLimit = 2300000;
 
     BitBoard bitBoard[3];
     // construct bitboard for two players
@@ -63,8 +64,9 @@ void UCT::Search(const int * const * origBoard, const int * origTop, int &placeX
     currentBitBoard[PLAYER_ME] = bitBoard[PLAYER_ME];
     
     //以状态s_0创建根节点v_0;
-    UCTNode *buffer = allocator.allocate();
-    UCTNode *root = new (buffer) UCTNode(PLAYER_OTHER, nullptr);
+    static std::shared_ptr<UCTNode> lastRoots[3];
+    std::shared_ptr<UCTNode> root = std::make_shared<UCTNode>(PLAYER_OTHER, nullptr);
+    ptrAllocd ++;
     // disconnect from previous graph
     root->parent = nullptr;
 
@@ -75,7 +77,7 @@ void UCT::Search(const int * const * origBoard, const int * origTop, int &placeX
         currentBitBoard[PLAYER_ME] = bitBoard[PLAYER_ME];
 
         //v_l←TREEPOLICY(v_0);
-        UCTNode *v1 = treePolicy(root);
+        UCTNode *v1 = treePolicy(root.get());
         //∆←DEFAULTPOLICY(s(v_l));
         int delta = defaultPolicy(v1);
         //BACKUP(v_l,∆);
@@ -115,17 +117,30 @@ void UCT::Search(const int * const * origBoard, const int * origTop, int &placeX
     } else {
         fprintf(stderr, "output: (%d, %d), searches: %ld\n", root->childX[best], best, searches);
     }
-    fprintf(stderr, "cache: %zu entries\n", nodeCache.size());
 
     placeX = root->childX[best];
     placeY = best;
 
+    lastRoots[2] = lastRoots[1];
+    lastRoots[1] = lastRoots[0];
+    lastRoots[0] = root;
+    root = nullptr;
+    fprintf(stderr, "pointer: %ld alloced, %ld freed, %ld live\n", ptrAllocd, ptrFreed, ptrAllocd - ptrFreed);
+
     // reclaim memory
     if (round % reclaim == 0) {
-        nodeCache.clear();
-        allocator.clear();
+        for (auto it = nodeCache.begin(); it != nodeCache.end();)
+        {
+            // drop deallocated entries
+            if (!it->second.lock())
+                it = nodeCache.erase(it);
+            else
+                ++it;
+        }
     }
+    fprintf(stderr, "cache: %zu entries\n", nodeCache.size());
 
+    gettimeofday(&now, NULL);
     cur_us = now.tv_sec * 1000000 + now.tv_usec;
     fprintf(stderr, "time: %.2f s\n", (cur_us - us) / 1000000.0);
 }
