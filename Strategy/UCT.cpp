@@ -124,7 +124,7 @@ new_tree:
     memcpy(lastBoard, board, sizeof(board));
 
     //while 尚未用完计算时长 do:
-    while (cur_us < us + 2800000 && root->cachedResult == -1) {
+    while (cur_us < us + 2950000 && root->cachedResult == -1) {
         memcpy(currentTop, origTop, N * sizeof(int));
         currentBitBoard[PLAYER_OTHER] = bitBoard[PLAYER_OTHER];
         currentBitBoard[PLAYER_ME] = bitBoard[PLAYER_ME];
@@ -208,6 +208,7 @@ int UCT::defaultPolicy(UCTNode *node) {
     if (currentBitBoard[node->player].win()) {
         // node player win
         node->cachedResult = 2;
+        node->steps = 1;
         node->expandNum = 0;
         node->endNode = true;
         node->propagateCachedResult();
@@ -219,6 +220,7 @@ int UCT::defaultPolicy(UCTNode *node) {
             // tie
             if (isFirstStep) {
                 node->cachedResult = 1;
+                node->steps = 1;
                 node->expandNum = 0;
                 node->endNode = true;
             }
@@ -238,6 +240,7 @@ int UCT::defaultPolicy(UCTNode *node) {
                 int result = currentPlayer == node->player ? 2 : 0;
                 if (isFirstStep) {
                     node->cachedResult = result;
+                    node->steps = 1;
                     node->expandNum = 0;
                     node->endNode = true;
                     node->propagateCachedResult();
@@ -258,6 +261,7 @@ int UCT::defaultPolicy(UCTNode *node) {
             int result = currentPlayer == node->player ? 0 : 2;
             if (isFirstStep) {
                 node->cachedResult = result;
+                node->steps = 1;
                 node->expandNum = 0;
                 node->endNode = true;
                 node->propagateCachedResult();

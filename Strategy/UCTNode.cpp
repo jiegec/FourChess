@@ -3,6 +3,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <assert.h>
+#include <algorithm>
 
 UCTNode::UCTNode(int x, int y, int player, UCTNode *parent) {
     this->x = x;
@@ -32,6 +33,7 @@ UCTNode::UCTNode(int x, int y, int player, UCTNode *parent) {
     }
 
     cachedResult = -1; // invalid
+    steps = -1;
 }
 
 UCTNode::~UCTNode() {
@@ -98,13 +100,45 @@ UCTNode *UCTNode::bestChild(float coef) {
 
 // function BESTCHILD
 UCTNode *UCTNode::finalBestChild() {
-    float max = -1024768;
+    int minSteps = 1048576;
     UCTNode *best = nullptr;
+    // any child always wins? select the child with least steps
+    for (int i = 0;i < UCT::N;i++) {
+        if (children[i]) {
+            if (children[i]->cachedResult == 2 && minSteps > children[i]->steps) {
+                minSteps = children[i]->steps;
+                best = children[i];
+            }
+        }
+    }
+    if (best) {
+        return best;
+    }
+
+    // all child always loses? select the child with most steps
+    bool allLose = true;
+    int maxSteps = -1;
+    for (int i = 0;i < UCT::N;i++) {
+        if (children[i]) {
+            if (children[i]->cachedResult != 0) {
+                allLose = false;
+                break;
+            } else if (children[i]->steps > maxSteps) {
+                maxSteps = children[i]->steps;
+                best = children[i];
+            }
+        }
+    }
+    if (allLose && best) {
+        return best;
+    }
+    best = nullptr;
+
+    float max = -1024768;
     for (int i = 0;i < UCT::N;i++) {
         if (children[i]) {
             float num = children[i]->Q / 2.0f / children[i]->N;
-            // select must win node
-            if (num > max || children[i]->cachedResult == 2) {
+            if (num > max) {
                 max = num;
                 best = children[i];
             }
@@ -133,7 +167,9 @@ void UCTNode::print(int depth, int tab) {
             }
             fprintf(stderr, "(%d, %d): %.1f / %d = %.2f", children[i]->x, children[i]->y, children[i]->Q / 2.0, children[i]->N, children[i]->Q / 2.0 / children[i]->N);
             if (children[i]->cachedResult != -1) {
-                fprintf(stderr, " known %d", children[i]->cachedResult);
+                fprintf(stderr, " %s in %d steps", 
+                    (children[i]->cachedResult == 0 ? "lose" : (children[i]->cachedResult == 1 ? "tie" : "win")),
+                    children[i]->steps);
             }
             fprintf(stderr, "\n");
 
@@ -149,22 +185,27 @@ void UCTNode::propagateCachedResult() {
         // if this is a win node: parent must lose
         if (cachedResult == 2) {
             parent->cachedResult = 0;
+            parent->steps = steps;
             parent->endNode = true;
             parent->Q = 0;
             parent->propagateCachedResult();
         } else if (parent->expandNum == 0) {
             // if all children has cached result equals to zero: parent must win
             bool allKnownZero = true;
+            int maxSteps = -1;
             for (int i = 0;i < UCT::N;i++) {
                 if (parent->children[i]) {
                     if (parent->children[i]->cachedResult != 0) {
                         allKnownZero = false;
+                    } else {
+                        maxSteps = std::max(maxSteps, parent->children[i]->steps);
                     }
                 }
             }
 
             if (allKnownZero) {
                 parent->cachedResult = 2;
+                parent->steps = maxSteps + 1;
                 parent->endNode = true;
                 parent->Q = 2 * parent->N;
                 parent->propagateCachedResult();

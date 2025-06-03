@@ -16,6 +16,7 @@ class UCTNode {
 
     bool endNode; // whether it is an end node, i.e. no more steps are available
     int cachedResult; // skip defaultPolicy if already determined, -1 for invalid
+    int steps; // maximum steps from the current player (including current one) to achieve the cached result
 
     int Q; // 0 for lose, 1 for tie, 2 for win; divide by 2 to get the real score
     int N;

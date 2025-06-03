@@ -33,6 +33,13 @@ public:
     int defaultPolicy(UCTNode *node);
 };
 
+struct RShift3 {
+    BitBoard operator ()(BitBoard self, int amount);
+};
+struct RShift2 {
+    BitBoard operator ()(BitBoard self, int amount);
+};
+
 // https://github.com/denkspuren/BitboardC4/blob/master/BitboardDesign.md
 class BitBoard {
 public:
@@ -74,7 +81,8 @@ public:
         }
     }
 
-    inline bool win() const {
+    template <typename Shifter>
+    bool winInner(Shifter rshift) const{
         // learned from https://github.com/qu1j0t3/fhourstones/blob/bf0e70ed9fe8128eeea8539f17dd41826f2cc6b6/Game.c#L108
         // A & (A >> S) & (A >> (2 * S)) & (A >> (3 * S))
         // becomes:
@@ -82,30 +90,39 @@ public:
         // temp & (temp >> (2 * S))
 
         // row: shift by M+1
-        BitBoard temp = (*this) & (*this >> (UCT::M + 1));
-        if (temp & (temp >> (2 * (UCT::M + 1)))) {
+        BitBoard temp = (*this) & (rshift(*this, UCT::M + 1));
+        if (temp & (rshift(temp, 2 * (UCT::M + 1)))) {
             return true;
         }
 
         // col: shift by 1
-        temp = (*this) & (*this >> (1));
-        if (temp & (temp >> (2 * (1)))) {
+        temp = (*this) & (rshift(*this, (1)));
+        if (temp & (rshift(temp, (2 * (1))))) {
             return true;
         }
 
         // diag \: shift by M
-        temp = (*this) & (*this >> (UCT::M));
-        if (temp & (temp >> (2 * (UCT::M)))) {
+        temp = (*this) & (rshift(*this, (UCT::M)));
+        if (temp & (rshift(temp, (2 * (UCT::M))))) {
             return true;
         }
 
         // diag /: shift by M+2
-        temp = (*this) & (*this >> (UCT::M + 2));
-        if (temp & (temp >> (2 * (UCT::M + 2)))) {
+        temp = (*this) & (rshift(*this, (UCT::M + 2)));
+        if (temp & (rshift(temp, (2 * (UCT::M + 2))))) {
             return true;
         }
 
         return false;
+    }
+
+
+    inline bool win() const {
+        if ((UCT::M + 1) * UCT::N > 128) {
+            return winInner(RShift3{});
+        } else {
+            return winInner(RShift2{});
+        }
     }
 
     inline void set(int j, int k) {
@@ -130,18 +147,6 @@ public:
         return data[0] == other.data[0] && data[1] == other.data[1] && data[2] == other.data[2];
     }
 
-    inline BitBoard operator >> (int amount) const {
-        BitBoard res;
-        // assert(0 < amount && amount < 64);
-        res.data[0] = (data[0] >> amount) | (data[1] << (64 - amount));
-        if ((UCT::M + 1) * UCT::N > 128) {
-            res.data[1] = (data[1] >> amount) | (data[2] << (64 - amount));
-            res.data[2] = data[2] >> amount;
-        } else {
-            res.data[1] = data[1] >> amount;
-        }
-        return res;
-    }
 
     inline BitBoard operator & (const BitBoard &other) const {
         BitBoard res;
@@ -161,6 +166,23 @@ public:
         return data[0] || data[1] || data[2];
     }
 };
+
+inline BitBoard RShift3::operator ()(BitBoard self, int amount) {
+    BitBoard res;
+    // assert(0 < amount && amount < 64);
+    res.data[0] = (self.data[0] >> amount) | (self.data[1] << (64 - amount));
+    res.data[1] = (self.data[1] >> amount) | (self.data[2] << (64 - amount));
+    res.data[2] = self.data[2] >> amount;
+    return res;
+}
+
+inline BitBoard RShift2::operator ()(BitBoard self, int amount) {
+    BitBoard res;
+    // assert(0 < amount && amount < 64);
+    res.data[0] = (self.data[0] >> amount) | (self.data[1] << (64 - amount));
+    res.data[1] = self.data[1] >> amount;
+    return res;
+}
 
 
 #endif
