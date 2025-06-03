@@ -1,5 +1,6 @@
 #include "UCT.h"
 #include "UCTNode.h"
+#include <cstddef>
 #include <cstring>
 #include <memory.h>
 #include <stdlib.h>
@@ -8,7 +9,7 @@
 #include <assert.h>
 
 #ifdef DEBUG
-#define debug(...) printf(__VA_ARGS__)
+#define debug(...) fprintf(stderr, __VA_ARGS__)
 #else
 #define debug(...)
 #endif
@@ -29,9 +30,6 @@ UCT::UCT(int M, int N, int noX, int noY) {
 
 // function UCTSEARCH(S_0)
 void UCT::Search(const int * const * origBoard, const int * origTop, int &placeX, int &placeY) {
-    static UCTNode *lastRoot = NULL;
-    static int lastBoard[MAX_M][MAX_N];
-
     fprintf(stderr, "-------\n");
 
     struct timeval begin, now;
@@ -47,6 +45,13 @@ void UCT::Search(const int * const * origBoard, const int * origTop, int &placeX
         }
     }
 
+    // reclaim memory every several rounds
+    static int round = 0;
+    int reclaim = 10;
+    round ++;
+    // give some time for memory reclaim
+    int timeLimit = (round % reclaim == 0) ? 2500000 : 2800000;
+
     BitBoard bitBoard[3];
     // construct bitboard for two players
     bitBoard[PLAYER_OTHER] = BitBoard(PLAYER_OTHER, board);
@@ -58,73 +63,13 @@ void UCT::Search(const int * const * origBoard, const int * origTop, int &placeX
     currentBitBoard[PLAYER_ME] = bitBoard[PLAYER_ME];
     
     //以状态s_0创建根节点v_0;
-    UCTNode *root = NULL;
-    if (lastRoot == NULL) {
-new_tree:
-        root = new UCTNode(-1, -1, PLAYER_OTHER, nullptr);
-    } else {
-        // find the child corresponding to last step
-        // there must be one PLAYER_ME and one PLAYER_OTHER new in the current board
-
-        // find the PLAYER_ME
-        bool found = false;
-        for (int j = 0;j < M;j++) {
-            for (int k = 0;k < N;k++) {
-                if (board[j][k] == PLAYER_ME && lastBoard[j][k] == 0)  {
-                    // found
-                    assert(!found);
-                    found = true;
-
-                    root = lastRoot->children[k];
-                    if (!root) {
-                        // we must win, create a new tree anyway
-                        delete lastRoot;
-                        goto new_tree;
-                    }
-                    assert(root->x == j && root->y == k);
-                }
-            }
-        }
-        assert(found);
-
-        found = false;
-        // find the PLAYER_OTHER
-        for (int j = 0;j < M;j++) {
-            for (int k = 0;k < N;k++) {
-                if (board[j][k] == PLAYER_OTHER && lastBoard[j][k] == 0)  {
-                    // found
-                    assert(!found);
-                    found = true;
-
-                    // detach it from the previous root and free the old tree
-                    UCTNode *temp = root->children[k];
-                    if (!temp) {
-                        // we must win, create a new tree anyway
-                        delete lastRoot;
-                        goto new_tree;
-                    }
-                    assert(temp->x == j && temp->y == k);
-                    root->children[k] = NULL;
-                    root = temp;
-                    root->parent = NULL;
-                    delete lastRoot;
-                }
-            }
-        }
-        assert(found);
-        if (root->endNode) {
-            // prevent no child node allocated, rerun anyway
-            delete root;
-            goto new_tree;
-        }
-        fprintf(stderr, "children from previous state:\n");
-        root->print(0);
-    }
-
-    memcpy(lastBoard, board, sizeof(board));
+    UCTNode *buffer = allocator.allocate();
+    UCTNode *root = new (buffer) UCTNode(PLAYER_OTHER, nullptr);
+    // disconnect from previous graph
+    root->parent = nullptr;
 
     //while 尚未用完计算时长 do:
-    while (cur_us < us + 2950000 && root->cachedResult == -1) {
+    while (cur_us < us + timeLimit && root->cachedResult == -1) {
         memcpy(currentTop, origTop, N * sizeof(int));
         currentBitBoard[PLAYER_OTHER] = bitBoard[PLAYER_OTHER];
         currentBitBoard[PLAYER_ME] = bitBoard[PLAYER_ME];
@@ -143,12 +88,12 @@ new_tree:
     //end while
     //return a(BESTCHILD(v_0,0));
 
-    UCTNode *best = root->finalBestChild();
+    int best = root->finalBestChild();
     fprintf(stderr, "board:\n");
     for (int j = 0;j < M;j++) {
         for (int k = 0;k < N;k++) {
             char ch = '\0';
-            if (j == best->x && k == best->y) {
+            if (j == root->childX[best] && k == best) {
                 ch = '!';
             } else if (j == noX && k == noY) {
                 ch = 'z';
@@ -165,12 +110,24 @@ new_tree:
     }
     fprintf(stderr, "children:\n");
     root->print(0);
-    fprintf(stderr, "win rate: %.2f, searches: %ld\n", best->Q / 2.0 / best->N, searches);
+    if (root->children[best]) {
+        fprintf(stderr, "output: (%d, %d), score: %.2f, searches: %ld\n", root->childX[best], best, root->children[best]->Q, searches);
+    } else {
+        fprintf(stderr, "output: (%d, %d), searches: %ld\n", root->childX[best], best, searches);
+    }
+    fprintf(stderr, "cache: %zu entries\n", nodeCache.size());
 
-    placeX = best->x;
-    placeY = best->y;
+    placeX = root->childX[best];
+    placeY = best;
 
-    lastRoot = root;
+    // reclaim memory
+    if (round % reclaim == 0) {
+        nodeCache.clear();
+        allocator.clear();
+    }
+
+    cur_us = now.tv_sec * 1000000 + now.tv_usec;
+    fprintf(stderr, "time: %.2f s\n", (cur_us - us) / 1000000.0);
 }
 
 // function TreePolicy(v)
@@ -208,10 +165,10 @@ int UCT::defaultPolicy(UCTNode *node) {
     if (currentBitBoard[node->player].win()) {
         // node player win
         node->cachedResult = 2;
+        node->Q = 1;
         node->steps = 1;
         node->expandNum = 0;
         node->endNode = true;
-        node->propagateCachedResult();
         return 2;
     }
 
@@ -220,6 +177,7 @@ int UCT::defaultPolicy(UCTNode *node) {
             // tie
             if (isFirstStep) {
                 node->cachedResult = 1;
+                node->Q = 0.5;
                 node->steps = 1;
                 node->expandNum = 0;
                 node->endNode = true;
@@ -240,10 +198,10 @@ int UCT::defaultPolicy(UCTNode *node) {
                 int result = currentPlayer == node->player ? 2 : 0;
                 if (isFirstStep) {
                     node->cachedResult = result;
+                    node->Q = (double)result / 2;
                     node->steps = 1;
                     node->expandNum = 0;
                     node->endNode = true;
-                    node->propagateCachedResult();
                 }
                 return result;
             }
@@ -261,10 +219,10 @@ int UCT::defaultPolicy(UCTNode *node) {
             int result = currentPlayer == node->player ? 0 : 2;
             if (isFirstStep) {
                 node->cachedResult = result;
-                node->steps = 1;
+                node->Q = (double)result / 2;
+                node->steps = 2;
                 node->expandNum = 0;
                 node->endNode = true;
-                node->propagateCachedResult();
             }
             return result;
         }

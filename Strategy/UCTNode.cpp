@@ -5,15 +5,17 @@
 #include <assert.h>
 #include <algorithm>
 
-UCTNode::UCTNode(int x, int y, int player, UCTNode *parent) {
-    this->x = x;
-    this->y = y;
+std::unordered_map<std::pair<BitBoard, BitBoard>, UCTNode *> nodeCache;
+BumpAllocator allocator;
+
+UCTNode::UCTNode(int player, UCTNode *parent) {
     this->player = player;
     this->parent = parent;
     endNode = -1;
 
-    Q = 0;
-    N = 0;
+    Q = 0.0;
+    selfN = 0;
+    selfQ = 0;
 
     expandNum = 0;
     for (int i = 0;i < UCT::N;i++) {
@@ -21,16 +23,13 @@ UCTNode::UCTNode(int x, int y, int player, UCTNode *parent) {
             expandNodes[expandNum++] = i;
         }
         children[i] = nullptr;
+        childVisit[i] = 0;
+        childX[i] = -1;
     }
 
     // check if this is an end node?
-    if (x == -1 || y == -1) {
-        // root node
-        endNode = false;
-    } else {
-        // somebody wins, or no moves are possible
-        endNode = UCT::currentBitBoard[player].win() || expandNum == 0;
-    }
+    // somebody wins, or no moves are possible
+    endNode = UCT::currentBitBoard[player].win() || expandNum == 0;
 
     cachedResult = -1; // invalid
     steps = -1;
@@ -38,7 +37,6 @@ UCTNode::UCTNode(int x, int y, int player, UCTNode *parent) {
 
 UCTNode::~UCTNode() {
     for (int i = 0;i < UCT::N;i++) {
-        delete children[i];
         children[i] = nullptr;
     }
 }
@@ -50,6 +48,7 @@ int UCTNode::checkEnd() {
 // function EXPAND
 UCTNode *UCTNode::expandOne() {
     int child = rand() % expandNum;
+    childVisit[child]++;
     int yy = expandNodes[child];
     int xx = --UCT::currentTop[yy];
     UCT::currentBitBoard[3 - player].set(xx, yy);
@@ -59,7 +58,26 @@ UCTNode *UCTNode::expandOne() {
         UCT::currentTop[yy] --;
     }
 
-    children[yy] = new UCTNode(xx, yy, 3 - player, this);
+    // find in cache
+    auto it = nodeCache.find(
+        {UCT::currentBitBoard[PLAYER_OTHER], UCT::currentBitBoard[PLAYER_ME]}
+    );
+    if (it == nodeCache.end()) {
+        UCTNode *buffer = allocator.allocate();
+        children[yy] = new (buffer) UCTNode(3 - player, this);
+        nodeCache.insert(
+            {
+                {UCT::currentBitBoard[PLAYER_OTHER], UCT::currentBitBoard[PLAYER_ME]}, 
+                children[yy]
+            });
+    } else {
+        // reuse
+        children[yy] = it->second;
+        // redirect parent
+        children[yy]->parent = this;
+    }
+    childX[yy] = xx;
+    childVisit[yy] += 1;
 
     // remove expand
     expandNum --;
@@ -74,12 +92,19 @@ UCTNode *UCTNode::expandOne() {
 UCTNode *UCTNode::bestChild(float coef) {
     float max = -1024768;
     UCTNode *best = nullptr;
-    int bestY = 0;
+    int bestY = -1;
+
+    // count all child visits
+    int N = selfN;
+    for (int i = 0;i < UCT::N;i++) {
+        N += childVisit[i];
+    }
+
     float logN2 = 2 * logf(N);
     for (int i = 0;i < UCT::N;i++) {
         if (children[i]) {
-            float num = children[i]->Q / 2.0f / children[i]->N + coef * sqrtf(logN2 / children[i]->N);
-            if (num > max) {
+            float num = children[i]->Q + coef * sqrtf(logN2 / childVisit[i]);
+            if (num > max || best == nullptr) {
                 max = num;
                 best = children[i];
                 bestY = i;
@@ -88,34 +113,39 @@ UCTNode *UCTNode::bestChild(float coef) {
     }
 
     // replay
+    childVisit[bestY]++;
     int bestX = --UCT::currentTop[bestY];
-    assert(bestX == best->x && bestY == best->y);
+    assert(bestX == childX[bestY]);
     UCT::currentBitBoard[children[bestY]->player].set(bestX, bestY);
     if (UCT::currentTop[bestY] == UCT::noX + 1 && bestY == UCT::noY) {
         UCT::currentTop[bestY] --;
     }
 
+    // remember to redirect parent pointer
+    best->parent = this;
+
     return best;
 }
 
 // function BESTCHILD
-UCTNode *UCTNode::finalBestChild() {
+int UCTNode::finalBestChild() {
     int minSteps = 1048576;
-    UCTNode *best = nullptr;
+    int best = -1;
     // any child always wins? select the child with least steps
     for (int i = 0;i < UCT::N;i++) {
         if (children[i]) {
             if (children[i]->cachedResult == 2 && minSteps > children[i]->steps) {
                 minSteps = children[i]->steps;
-                best = children[i];
+                best = i;
             }
         }
     }
-    if (best) {
+    if (best != -1) {
         return best;
     }
 
     // all child always loses? select the child with most steps
+    best = -1;
     bool allLose = true;
     int maxSteps = -1;
     for (int i = 0;i < UCT::N;i++) {
@@ -125,22 +155,22 @@ UCTNode *UCTNode::finalBestChild() {
                 break;
             } else if (children[i]->steps > maxSteps) {
                 maxSteps = children[i]->steps;
-                best = children[i];
+                best = i;
             }
         }
     }
-    if (allLose && best) {
+    if (allLose && best != -1) {
         return best;
     }
-    best = nullptr;
 
     float max = -1024768;
+    best = -1;
     for (int i = 0;i < UCT::N;i++) {
         if (children[i]) {
-            float num = children[i]->Q / 2.0f / children[i]->N;
+            float num = children[i]->Q;
             if (num > max) {
                 max = num;
-                best = children[i];
+                best = i;
             }
         }
     }
@@ -150,12 +180,85 @@ UCTNode *UCTNode::finalBestChild() {
 
 // function Backup
 void UCTNode::backup(int delta) {
-    UCTNode *cur = this;
-    while (cur) {
-        cur->N += 1;
-        cur->Q += delta;
-        delta = 2 - delta;
-        cur = cur->parent;
+    // propagate cached result
+    if (cachedResult != -1) {
+        UCTNode *cur = this;
+        while (cur) {
+            if (cur->parent && cur->cachedResult != -1) {
+                if (cur->cachedResult == 2) {
+                    // cur always win: parent always lose
+                    cur->parent->cachedResult = 0;
+                    cur->parent->steps = cur->steps;
+                    cur->parent->endNode = true;
+                    cur->parent->selfQ = 0.0;
+                    cur->parent->Q = 0.0;
+                    cur = cur->parent;
+                    continue;
+                } else if (cur->cachedResult == 0 && cur->parent->expandNum == 0) {
+                    // cur always lose: see if all children of parent always lose
+                    bool allKnownZero = true;
+                    int8_t maxSteps = -1;
+                    for (int i = 0;i < UCT::N;i++) {
+                        if (cur->parent->children[i]) {
+                            if (cur->parent->children[i]->cachedResult != 0) {
+                                allKnownZero = false;
+                            } else {
+                                maxSteps = std::max(maxSteps, cur->parent->children[i]->steps);
+                            }
+                        }
+                    }
+
+                    if (allKnownZero) {
+                        cur->parent->cachedResult = 2;
+                        cur->parent->steps = maxSteps + 1;
+                        cur->parent->endNode = true;
+                        cur->parent->Q = 1.0;
+                        cur->parent->selfQ = cur->parent->selfN;
+                        cur = cur->parent;
+                        continue;
+                    }
+                }
+            }
+
+            if (cur->cachedResult == -1) {
+                // fixup score
+                // weighted sum of children scores, weighted by edge visit count
+                int sumVisit = 0;
+                double weightedSum = 0;
+                for (int i = 0;i < UCT::N;i++) {
+                    sumVisit += cur->childVisit[i];
+                    if (cur->children[i]) {
+                        weightedSum += cur->childVisit[i] * (1.0 - cur->children[i]->Q);
+                    }
+                }
+
+                weightedSum += cur->selfQ * cur->selfN;
+                cur->Q = weightedSum / (sumVisit + cur->selfN);
+            }
+
+            cur = cur->parent;
+        }
+    } else {
+        // defaultPolicy invocation of this node
+        selfQ = (selfQ * selfN + (double)delta / 2) / (selfN + 1);
+        selfN += 1;
+
+        UCTNode *cur = this;
+        while (cur) {
+            // weighted sum of children scores, weighted by edge visit count
+            int sumVisit = 0;
+            double weightedSum = 0;
+            for (int i = 0;i < UCT::N;i++) {
+                sumVisit += cur->childVisit[i];
+                if (cur->children[i]) {
+                    weightedSum += cur->childVisit[i] * (1.0 - cur->children[i]->Q);
+                }
+            }
+
+            weightedSum += cur->selfQ * cur->selfN;
+            cur->Q = weightedSum / (sumVisit + cur->selfN);
+            cur = cur->parent;
+        }
     }
 }
 
@@ -165,7 +268,7 @@ void UCTNode::print(int depth, int tab) {
             for (int i = 0;i < tab;i++) {
                 fprintf(stderr, "    ");
             }
-            fprintf(stderr, "(%d, %d): %.1f / %d = %.2f", children[i]->x, children[i]->y, children[i]->Q / 2.0, children[i]->N, children[i]->Q / 2.0 / children[i]->N);
+            fprintf(stderr, "(%d, %d): %.2f of %d visits", childX[i], i, children[i]->Q, childVisit[i]);
             if (children[i]->cachedResult != -1) {
                 fprintf(stderr, " %s in %d steps", 
                     (children[i]->cachedResult == 0 ? "lose" : (children[i]->cachedResult == 1 ? "tie" : "win")),
@@ -175,40 +278,6 @@ void UCTNode::print(int depth, int tab) {
 
             if (depth > 0) {
                 children[i]->print(depth - 1, tab + 1);
-            }
-        }
-    }
-}
-
-void UCTNode::propagateCachedResult() {
-    if (parent) {
-        // if this is a win node: parent must lose
-        if (cachedResult == 2) {
-            parent->cachedResult = 0;
-            parent->steps = steps;
-            parent->endNode = true;
-            parent->Q = 0;
-            parent->propagateCachedResult();
-        } else if (parent->expandNum == 0) {
-            // if all children has cached result equals to zero: parent must win
-            bool allKnownZero = true;
-            int maxSteps = -1;
-            for (int i = 0;i < UCT::N;i++) {
-                if (parent->children[i]) {
-                    if (parent->children[i]->cachedResult != 0) {
-                        allKnownZero = false;
-                    } else {
-                        maxSteps = std::max(maxSteps, parent->children[i]->steps);
-                    }
-                }
-            }
-
-            if (allKnownZero) {
-                parent->cachedResult = 2;
-                parent->steps = maxSteps + 1;
-                parent->endNode = true;
-                parent->Q = 2 * parent->N;
-                parent->propagateCachedResult();
             }
         }
     }

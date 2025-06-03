@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <stdlib.h>
 #include <stdint.h>
+#include <string>
 
 const int PLAYER_ME = 2;
 const int PLAYER_OTHER = 1;
@@ -164,6 +165,37 @@ public:
 
     inline operator bool () const {
         return data[0] || data[1] || data[2];
+    }
+
+    std::string print() const {
+        std::string result;
+        for (int j = 0;j < UCT::M;j++) {
+            for (int k = 0;k < UCT::N;k++) {
+                int bit = k * (UCT::M + 1) + UCT::M - j - 1;
+                if (data[bit / 64] & ((uint64_t)1 << (bit % 64))) {
+                    result += '1';
+                } else {
+                    result += ' ';
+                }
+            }
+            result += '\n';
+        }
+        return result;
+    }
+};
+
+template<>
+struct std::hash<std::pair<BitBoard, BitBoard>>
+{
+    std::size_t operator()(const std::pair<BitBoard, BitBoard>& board) const noexcept
+    {
+        std::size_t h1 = std::hash<uint64_t>{}(board.first.data[0]);
+        std::size_t h2 = std::hash<uint64_t>{}(board.first.data[1]);
+        std::size_t h3 = std::hash<uint64_t>{}(board.first.data[2]);
+        std::size_t h4 = std::hash<uint64_t>{}(board.second.data[0]);
+        std::size_t h5 = std::hash<uint64_t>{}(board.second.data[1]);
+        std::size_t h6 = std::hash<uint64_t>{}(board.second.data[2]);
+        return h1 ^ (h2 << 3) ^ (h3 << 5) ^ (h4 << 7) ^ (h5 << 11) ^ (h6 << 13);
     }
 };
 

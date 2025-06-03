@@ -2,26 +2,30 @@
 #define UCTNODE_H
 
 #include "UCT.h"
+#include <cassert>
+#include <unordered_map>
 
 class UCTNode {
     friend class UCT;
-    int player; // 2=me,1=other
-    int x, y;
-
-    UCTNode *parent;
+    UCTNode *parent; // parent node in the current search path
     UCTNode *children [MAX_N];
+    double Q; // win rate
+    double selfQ; // win rate for self visit in defaultPolicy
 
-    int expandNum;
-    int expandNodes[MAX_N]; // next step which column
+    int childVisit [MAX_N]; // visit count for each child
+    int player; // 2=me,1=other
+    int selfN; // self visit time in defaultPolicy
 
-    bool endNode; // whether it is an end node, i.e. no more steps are available
-    int cachedResult; // skip defaultPolicy if already determined, -1 for invalid
-    int steps; // maximum steps from the current player (including current one) to achieve the cached result
+    int8_t childX [MAX_N]; // x for each child
+    int8_t expandNum;
+    int8_t expandNodes[MAX_N]; // next step which column
 
-    int Q; // 0 for lose, 1 for tie, 2 for win; divide by 2 to get the real score
-    int N;
+    int8_t endNode; // whether it is an end node, i.e. no more steps are available
+    int8_t cachedResult; // skip defaultPolicy if already determined, -1 for invalid
+    int8_t steps; // maximum steps from the current player (including current one) to achieve the cached result
 public:
-    UCTNode(int x, int y, int player, UCTNode *parent);
+    UCTNode() {}
+    UCTNode(int player, UCTNode *parent);
 
     ~UCTNode();
 
@@ -35,13 +39,35 @@ public:
     // function BestChild(v,c)
     UCTNode *bestChild(float coef);
     // for select the children of root node
-    UCTNode *finalBestChild();
-
-    // propagate cached result to parent node if possible
-    void propagateCachedResult();
+    int finalBestChild();
 
     // function Backup
     void backup(int delta);
 };
+
+class BumpAllocator {
+public:
+    UCTNode data[900 * 1024 * 1024 / sizeof(struct UCTNode)];
+    size_t index;
+
+    BumpAllocator() {
+        index = 0;
+    }
+
+    UCTNode *allocate() {
+        assert(index < sizeof(data) / sizeof(data[0]));
+        return &data[index++];
+    }
+
+    void clear() {
+        index = 0;
+    }
+};
+
+extern BumpAllocator allocator;
+
+
+// hash map: (bitboardOther, bitboardMe) -> state
+extern std::unordered_map<std::pair<BitBoard, BitBoard>, UCTNode *> nodeCache;
 
 #endif
