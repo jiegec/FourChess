@@ -12,7 +12,7 @@ extern uint64_t ptrAllocd;
 class UCTNode {
     friend class UCT;
     UCTNode *parent; // parent node in the current search path
-    std::shared_ptr<UCTNode> children [MAX_N];
+    UCTNode *children [MAX_N];
     double Q; // win rate
     double selfQ; // win rate for self visit in defaultPolicy
 
@@ -51,6 +51,6 @@ public:
 
 
 // hash map: (bitboardOther, bitboardMe) -> state
-extern std::unordered_map<std::pair<BitBoard, BitBoard>, std::weak_ptr<UCTNode>> nodeCache;
+extern std::unordered_map<std::pair<BitBoard, BitBoard>, UCTNode *> nodeCache;
 
 #endif

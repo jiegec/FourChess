@@ -182,6 +182,10 @@ public:
         }
         return result;
     }
+
+    int popcount() const {
+        return __builtin_popcountll(data[0]) + __builtin_popcountll(data[1]) + __builtin_popcountll(data[2]);
+    }
 };
 
 template<>

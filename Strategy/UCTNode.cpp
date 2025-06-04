@@ -6,7 +6,7 @@
 #include <assert.h>
 #include <algorithm>
 
-std::unordered_map<std::pair<BitBoard, BitBoard>, std::weak_ptr<UCTNode>> nodeCache;
+std::unordered_map<std::pair<BitBoard, BitBoard>, UCTNode *> nodeCache;
 uint64_t ptrFreed = 0;
 uint64_t ptrAllocd = 0;
 
@@ -65,18 +65,18 @@ UCTNode *UCTNode::expandOne() {
     auto it = nodeCache.find(
         {UCT::currentBitBoard[PLAYER_OTHER], UCT::currentBitBoard[PLAYER_ME]}
     );
-    std::shared_ptr<UCTNode> ptr;
-    if (it == nodeCache.end() || !(ptr = it->second.lock())) {
-        children[yy] = std::make_shared<UCTNode>(3 - player, this);
+    if (it == nodeCache.end()) {
+        UCTNode *node = new UCTNode(3 - player, this);
+        children[yy] = node;
         ptrAllocd ++;
         nodeCache.insert(
             {
                 {UCT::currentBitBoard[PLAYER_OTHER], UCT::currentBitBoard[PLAYER_ME]}, 
-                children[yy]
+                node
             });
     } else {
         // reuse
-        children[yy] = ptr;
+        children[yy] = it->second;
         // redirect parent
         children[yy]->parent = this;
     }
@@ -89,7 +89,7 @@ UCTNode *UCTNode::expandOne() {
     expandNodes[expandNum] = expandNodes[child];
     expandNodes[child] = temp;
 
-    return children[yy].get();
+    return children[yy];
 }
 
 // function BESTCHILD
@@ -110,7 +110,7 @@ UCTNode *UCTNode::bestChild(float coef) {
             float num = children[i]->Q + coef * sqrtf(logN2 / childVisit[i]);
             if (num > max || best == nullptr) {
                 max = num;
-                best = children[i].get();
+                best = children[i];
                 bestY = i;
             }
         }
