@@ -51,7 +51,7 @@ void UCT::Search(const int * const * origBoard, const int * origTop, int &placeX
     }
 
     // give some time for memory reclaim
-    int timeLimit = 2900000 - nodeCache.size() / 2;
+    int timeLimit = 2800000;
 
     BitBoard bitBoard[3];
     // construct bitboard for two players
@@ -66,7 +66,6 @@ void UCT::Search(const int * const * origBoard, const int * origTop, int &placeX
     
     //以状态s_0创建根节点v_0;
     UCTNode *root = new UCTNode(PLAYER_OTHER, nullptr);
-    ptrAllocd ++;
 
     //while 尚未用完计算时长 do:
     while (cur_us < us + timeLimit && root->cachedResult == -1) {
@@ -119,24 +118,11 @@ void UCT::Search(const int * const * origBoard, const int * origTop, int &placeX
     placeX = root->childX[best];
     placeY = best;
 
-    // reclaim memory
-    root = nullptr;
-    for (auto it = nodeCache.begin(); it != nodeCache.end();) {
-        // drop boards that have less moves than current
-        bool drop = it->first.first.popcount() + it->first.second.popcount() < moves;
-        // drop boards that are unreachable from the current state
-        // i.e. conflict in some places
-        drop |= (it->first.first & bitBoard[PLAYER_ME]);
-        drop |= (it->first.second & bitBoard[PLAYER_OTHER]);
-        if (drop) {
-            delete it->second;
-            it = nodeCache.erase(it);
-        } else {
-            ++it;
-        }
-    }
-    fprintf(stderr, "pointer: %ld alloced, %ld freed, %ld live\n", ptrAllocd, ptrFreed, ptrAllocd - ptrFreed);
     fprintf(stderr, "cache: %zu entries\n", nodeCache.size());
+
+    // reclaim memory
+    nodeCache.clear();
+    allocator.clear();
 
     gettimeofday(&now, NULL);
     cur_us = now.tv_sec * 1000000 + now.tv_usec;
@@ -154,7 +140,7 @@ UCTNode *UCT::treePolicy(UCTNode *node) {
         } else {
             //else:
             //v← BESTCHILD(v,c)
-            node = node->bestChild(1.0);
+            node = node->bestChild();
         }
     }
     //return v
@@ -211,7 +197,7 @@ int UCT::defaultPolicy(UCTNode *node) {
                 int result = currentPlayer == node->player ? 2 : 0;
                 if (isFirstStep) {
                     node->cachedResult = result;
-                    node->Q = (double)result / 2;
+                    node->Q = (float)result / 2;
                     node->steps = 1;
                     node->expandNum = 0;
                     node->endNode = true;
@@ -232,7 +218,7 @@ int UCT::defaultPolicy(UCTNode *node) {
             int result = currentPlayer == node->player ? 0 : 2;
             if (isFirstStep) {
                 node->cachedResult = result;
-                node->Q = (double)result / 2;
+                node->Q = (float)result / 2;
                 node->steps = 2;
                 node->expandNum = 0;
                 node->endNode = true;

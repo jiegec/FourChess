@@ -6,9 +6,8 @@
 #include <assert.h>
 #include <algorithm>
 
-std::unordered_map<std::pair<BitBoard, BitBoard>, UCTNode *> nodeCache;
-uint64_t ptrFreed = 0;
-uint64_t ptrAllocd = 0;
+BumpAllocator allocator;
+std::unordered_map<std::pair<BitBoard, BitBoard>, UCTNode*> nodeCache;
 
 UCTNode::UCTNode(int player, UCTNode *parent) {
     this->player = player;
@@ -28,6 +27,7 @@ UCTNode::UCTNode(int player, UCTNode *parent) {
         childVisit[i] = 0;
         childX[i] = -1;
     }
+    sumChildVisit = 0;
 
     // check if this is an end node?
     // somebody wins, or no moves are possible
@@ -38,10 +38,6 @@ UCTNode::UCTNode(int player, UCTNode *parent) {
 }
 
 UCTNode::~UCTNode() {
-    ptrFreed ++;
-    for (int i = 0;i < UCT::N;i++) {
-        children[i] = nullptr;
-    }
 }
 
 int UCTNode::checkEnd() {
@@ -51,7 +47,6 @@ int UCTNode::checkEnd() {
 // function EXPAND
 UCTNode *UCTNode::expandOne() {
     int child = rand() % expandNum;
-    childVisit[child]++;
     int yy = expandNodes[child];
     int xx = --UCT::currentTop[yy];
     UCT::currentBitBoard[3 - player].set(xx, yy);
@@ -66,14 +61,13 @@ UCTNode *UCTNode::expandOne() {
         {UCT::currentBitBoard[PLAYER_OTHER], UCT::currentBitBoard[PLAYER_ME]}
     );
     if (it == nodeCache.end()) {
-        UCTNode *node = new UCTNode(3 - player, this);
+        UCTNode *buffer = allocator.allocate();
+        UCTNode *node = new (buffer) UCTNode(3 - player, this);
         children[yy] = node;
-        ptrAllocd ++;
-        nodeCache.insert(
-            {
-                {UCT::currentBitBoard[PLAYER_OTHER], UCT::currentBitBoard[PLAYER_ME]}, 
-                node
-            });
+        nodeCache.insert({
+            {UCT::currentBitBoard[PLAYER_OTHER], UCT::currentBitBoard[PLAYER_ME]},
+            node
+        });
     } else {
         // reuse
         children[yy] = it->second;
@@ -82,6 +76,7 @@ UCTNode *UCTNode::expandOne() {
     }
     childX[yy] = xx;
     childVisit[yy] += 1;
+    sumChildVisit++;
 
     // remove expand
     expandNum --;
@@ -93,21 +88,17 @@ UCTNode *UCTNode::expandOne() {
 }
 
 // function BESTCHILD
-UCTNode *UCTNode::bestChild(float coef) {
+UCTNode *UCTNode::bestChild() {
     float max = -1024768;
     UCTNode *best = nullptr;
     int bestY = -1;
 
     // count all child visits
-    int N = selfN;
-    for (int i = 0;i < UCT::N;i++) {
-        N += childVisit[i];
-    }
-
+    int N = selfN + sumChildVisit;
     float logN2 = 2 * logf(N);
     for (int i = 0;i < UCT::N;i++) {
         if (children[i]) {
-            float num = children[i]->Q + coef * sqrtf(logN2 / childVisit[i]);
+            float num = children[i]->Q + sqrtf(logN2 / childVisit[i]);
             if (num > max || best == nullptr) {
                 max = num;
                 best = children[i];
@@ -118,6 +109,7 @@ UCTNode *UCTNode::bestChild(float coef) {
 
     // replay
     childVisit[bestY]++;
+    sumChildVisit++;
     int bestX = --UCT::currentTop[bestY];
     assert(bestX == childX[bestY]);
     UCT::currentBitBoard[children[bestY]->player].set(bestX, bestY);
@@ -227,40 +219,36 @@ void UCTNode::backup(int delta) {
             if (cur->cachedResult == -1) {
                 // fixup score
                 // weighted sum of children scores, weighted by edge visit count
-                int sumVisit = 0;
-                double weightedSum = 0;
+                float weightedSum = 0;
                 for (int i = 0;i < UCT::N;i++) {
-                    sumVisit += cur->childVisit[i];
                     if (cur->children[i]) {
-                        weightedSum += cur->childVisit[i] * (1.0 - cur->children[i]->Q);
+                        weightedSum += cur->childVisit[i] * (1.0f - cur->children[i]->Q);
                     }
                 }
 
                 weightedSum += cur->selfQ * cur->selfN;
-                cur->Q = weightedSum / (sumVisit + cur->selfN);
+                cur->Q = weightedSum / (cur->sumChildVisit + cur->selfN);
             }
 
             cur = cur->parent;
         }
     } else {
         // defaultPolicy invocation of this node
-        selfQ = (selfQ * selfN + (double)delta / 2) / (selfN + 1);
+        selfQ = (selfQ * selfN + (float)delta / 2.0f) / (selfN + 1);
         selfN += 1;
 
         UCTNode *cur = this;
         while (cur) {
             // weighted sum of children scores, weighted by edge visit count
-            int sumVisit = 0;
-            double weightedSum = 0;
+            float weightedSum = 0;
             for (int i = 0;i < UCT::N;i++) {
-                sumVisit += cur->childVisit[i];
                 if (cur->children[i]) {
-                    weightedSum += cur->childVisit[i] * (1.0 - cur->children[i]->Q);
+                    weightedSum += cur->childVisit[i] * (1.0f - cur->children[i]->Q);
                 }
             }
 
             weightedSum += cur->selfQ * cur->selfN;
-            cur->Q = weightedSum / (sumVisit + cur->selfN);
+            cur->Q = weightedSum / (cur->sumChildVisit + cur->selfN);
             cur = cur->parent;
         }
     }
